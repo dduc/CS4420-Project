@@ -11,6 +11,8 @@ from numpy import hstack
 
 import pandas as pd
 import datetime
+import time
+import h5py
 
 import tensorflow as tf
 from tensorflow.keras import layers
@@ -18,6 +20,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Flatten
+from tensorflow.keras.models import load_model
 
 from matplotlib import pyplot
 import os
@@ -25,16 +28,17 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # split a multivariate sequence into samples
 def split_all_data(allData, t_steps):
 	X,y = list(),list()
-	for i in range(len(allData)-150000):
+	for i in range(len(allData)):
 		# find the end of this pattern
 		end_ix = i + t_steps
 		# check if we are beyond the dataset
-		if end_ix > len(allData):
+		if end_ix > 345560:
 			break
 		# gather input and output parts of the pattern
 		seq_x, seq_y = allData[i:end_ix, :-1], allData[end_ix-1, -1]
 		X.append(seq_x)
 		y.append(seq_y)
+
 	return np.array(X), np.array(y)
 
 # --------------------------- DATA PREP FOR LSTM NETWORK ---------------------------------- #
@@ -101,7 +105,19 @@ all_data = np.hstack((time_of_day_seconds_seq,humidity_seq,temp_seq,wind_seq,sol
 '''
 
 # read in newly formatted dataset
-data = pd.read_csv('all_data.csv',header = 0,index_col = 0,low_memory=False)
+print("Reading in Data...")
+data = pd.read_csv('all_data.csv',skiprows=0,header = 0,index_col = 0,low_memory=False)
+print("Data read complete.")
+data = np.array(data)
+#data = data.flatten('F')
+#print(len(data))
+
+print("Splitting Data for LSTM network input/output sequences...")
+time_steps = 60
+X,y = split_all_data(data,time_steps)
+print("Splitting Done")
+'''
+#for plotting the data purposes
 values = data.values
 groups = [0,1,2,3,4]
 
@@ -114,32 +130,51 @@ for group in groups:
 	i += 1
 pyplot.show()
 
-time_steps = 1
-X,y = split_all_data(all_data,time_steps)
+
 
 # testing data prep results below...
 print(X.shape,y.shape)
-for i in range(3):
-   print(X[i],y[i])
-
+#for i in range(len(X)):
+print(X[len(X)-1],y[len(X)-1])
 '''
 # --------------------------------- END OF DATA PREP -------------------------------------- #
 
 # --------------------------------- LSTM NETWORK ------------------------------------------ #
-n_features = 5
 
+n_features = 4
+'''
 print("Beginning to train LSTM network...")
+print("Hidden Layers = 50, Epochs = 1, Activation = ReLU, Features = 4, Time Steps = 60(5 minutes of 5 second intervals)")
+start = time.time()
 model = Sequential()
 model.add(LSTM(50,activation = 'relu',input_shape=(time_steps,n_features)))
 model.add(Dense(1))
-model.compile(optimizer='adam',loss='mse')
+model.compile(optimizer='adam',loss='mse',metrics=['accuracy'])
+model.fit(X,y,validation_split=0.33,epochs=1)
+model.save('power_prediction_model.h5')
 
-model.fit(X,y,epochs=1,verbose=0)
-
-print("Doing prediction...")
-# prediction
-x_input = np.array(X[X.length()-1])
-x_input = x_input.reshape((1,time_steps,n_features))
-yhat = model.predict(x_input,verbose = 0)
-print(yhat)
+print("Model Metrics")
+print("Training Done")
+end = time.time()
+print("Total training time: ")
+print(end-start)
 '''
+# prediction
+day_19_5_minutes = []
+print("Gathering Day 19 data for Day 20 prediciton...")
+X[len(X)-1][59] = [30,90,1.6,1.2]
+
+for i in range(len(X)):
+	if i >= (len(X)-1):
+		day_19_5_minutes.append(X[i])
+
+#day_19_5_minutes.append([[43.8,75.6,1.6,1.2]])
+#print(day_19_5_minutes)
+model = load_model("power_prediction_model.h5")
+print("Day 19 last 5 hours info gathered")
+x_input = np.array(day_19_5_minutes)
+print(x_input)
+x_input = x_input.reshape((1,time_steps,n_features))
+print("Doing prediction...")
+yhat = model.predict(x_input,verbose = 0)
+print("Predicted Power is: ",yhat)
